@@ -1,0 +1,36 @@
+{
+  "name": "gr",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node tests",
+    "asbuild:untouched": "asc ./node_modules/as-bind/lib/assembly/as-bind.ts assembly/index.ts --exportRuntime --target debug",
+    "asbuild:optimized": "asc ./node_modules/as-bind/lib/assembly/as-bind.ts assembly/index.ts --target release --exportRuntime",
+    "asbuild": "npm run asbuild:untouched && npm run asbuild:optimized && cp build/optimized.wasm public/",
+    "b": "npm run asbuild:untouched && cp build/untouched.wasm public/optimized.wasm",
+    "build": "webpack --mode=production",
+    "start": "webpack serve --mode=development",
+    "watch": "webpack --watch",
+    "deploy": "npm run asbuild && npm run build"
+  },
+  "author": "",
+  "license": "ISC",
+  "private": "true",
+  "dependencies": {
+    "@assemblyscript/loader": "^0.19.22",
+    "as-bind": "^0.6.1",
+    "chart.js": "^3.7.0",
+    "chartjs-plugin-zoom": "^1.2.0",
+    "file-saver": "^2.0.5",
+    "jszip": "^3.7.1",
+    "xlsx": "^0.18.0"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.19.22",
+    "prettier": "^2.5.1",
+    "webpack": "^5.68.0",
+    "webpack-cli": "^4.9.2",
+    "webpack-dev-server": "^4.7.3"
+  }
+}
