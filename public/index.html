@@ -94,6 +94,11 @@
                   <span>scale:</span>
                   <div id="scaleDisplay" style="display: inline-block">-</div>
                 </div>
+                <div id="frameNavigator" style="display: none; margin-top: 10px;">
+                  <label for="frameSlider">Frame:</label>
+                  <input type="range" id="frameSlider" min="0" max="0" value="0" style="width: 300px;">
+                  <span id="frameDisplay">1 / 1</span>
+                </div>
                 <div>
                   <div>
                     <label for="rangeMin">
@@ -275,6 +280,13 @@
 
       const canvas = _id('previewCanvas');
       const cc = canvas.getContext('2d');
+
+      // --- 데이터 저장을 위한 전역 변수 추가 ---
+
+      let originalPixelData = null; // 원본 픽셀 데이터 (이제 사용하지 않거나 단일 프레임용으로 남겨둘 수 있음)
+      let speFrames = []; // 모든 SPE 프레임의 픽셀 데이터를 저장할 배열
+      let currentFrameIndex = 0; // 현재 보여주고 있는 프레임의 인덱스
+      
       // drop here の描画
       cc.font = '25px Sans';
       cc.fillStyle = '#aaa';
@@ -285,9 +297,122 @@
       const rangeMax = _id('rangeMax');
       const rangeMinDisplay = _id('rangeMinDisplay');
       const rangeMaxDisplay = _id('rangeMaxDisplay');
+      // ... (기존 UI 요소들)
+      const frameNavigator = _id('frameNavigator');
+      const frameSlider = _id('frameSlider');
+      const frameDisplay = _id('frameDisplay');
 
       let lastX = canvas.width / 2;
       let lastY = canvas.height / 2;
+
+      // ### 중요: inputFileAndDraw 함수를 완전히 새로 작성 ###
+
+const inputFileAndDraw = async (input) => {
+  if (!input.files.length) return false;
+  const file = input.files[0];
+
+  try {
+    const buffer = await file.arrayBuffer(); // 파일 전체를 ArrayBuffer로 읽기
+    const dataView = new DataView(buffer);
+
+    // SPE v2.1 헤더 사양 기반 (4100 바이트 헤더)
+    // 참고: SPE 파일 버전에 따라 오프셋이 다를 수 있습니다.
+    const HEADER_SIZE = 4100;
+    const width = dataView.getUint16(42, true);      // xdim 오프셋: 42
+    const height = dataView.getUint16(656, true);     // ydim 오프셋: 656
+    const numFrames = dataView.getUint32(1446, true); // numFrames 오프셋: 1446
+    const dataType = dataView.getInt16(108, true);    // dataType 오프셋: 108 (예: 3 = 16-bit unsigned integer)
+
+    if (width === 0 || height === 0 || numFrames === 0) {
+        alert('유효한 SPE 파일이 아니거나 헤더 정보를 읽을 수 없습니다.');
+        return false;
+    }
+
+    // 기존 프레임 데이터 초기화
+    speFrames = [];
+    const pixelsPerFrame = width * height;
+
+    // 데이터 타입에 따라 픽셀 데이터 읽기
+    // 예시는 16-bit unsigned integer (dataType === 3) 기준입니다.
+    if (dataType !== 3) {
+      alert(`지원하지 않는 데이터 타입입니다: ${dataType}. 16-bit unsigned integer만 지원됩니다.`);
+      return false;
+    }
+
+    // 모든 프레임을 순회하며 데이터 추출
+    for (let i = 0; i < numFrames; i++) {
+      const frameOffset = HEADER_SIZE + (i * pixelsPerFrame * 2); // 2 bytes per pixel
+      const frameData = new Uint16Array(buffer, frameOffset, pixelsPerFrame);
+      speFrames.push(frameData);
+    }
+    
+    currentFrameIndex = 0; // 첫 프레임으로 초기화
+
+    // 프레임 네비게이터 UI 업데이트 및 표시
+    if (numFrames > 1) {
+      frameSlider.max = numFrames - 1;
+      frameSlider.value = 0;
+      frameDisplay.innerText = `1 / ${numFrames}`;
+      frameNavigator.style.display = 'block';
+    } else {
+      frameNavigator.style.display = 'none';
+    }
+
+    return true; // 성공적으로 읽었음을 반환
+
+  } catch (error) {
+    console.error('파일을 읽는 중 오류 발생:', error);
+    alert('파일을 처리하는 중 오류가 발생했습니다.');
+    return false;
+  }
+};
+
+      // ### 중요: redraw 함수를 수정하여 특정 프레임을 그리도록 함 ###
+
+const redraw = () => {
+  if (speFrames.length === 0) return; // 데이터가 없으면 아무것도 하지 않음
+
+  // 현재 인덱스에 해당하는 프레임 데이터를 가져옴
+  const pixelData = speFrames[currentFrameIndex];
+
+  const min = parseInt(rangeMin.value, 10);
+  const max = parseInt(rangeMax.value, 10);
+
+  // ... (기존의 min/max 값 표시, 캔버스 클리어 로직은 동일)
+  rangeMinDisplay.innerText = min;
+  rangeMaxDisplay.innerText = max;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  cc.clearRect(0, 0, width, height);
+  const imageData = cc.createImageData(width, height);
+  const data = imageData.data;
+
+  const range = max - min;
+  if (range <= 0) return; // 0으로 나누기 방지
+
+  // 픽셀 데이터로 이미지 그리기
+  for (let i = 0; i < pixelData.length; i++) {
+    let value = (pixelData[i] - min) / range * 255;
+    value = Math.max(0, Math.min(255, value)); // 0-255 범위로 클램핑
+
+    const j = i * 4;
+    data[j] = value;     // R
+    data[j + 1] = value; // G
+    data[j + 2] = value; // B
+    data[j + 3] = 255;   // Alpha
+  }
+  cc.putImageData(imageData, 0, 0);
+};
+
+// ### 중요: 프레임 슬라이더 이벤트 리스너 추가 ###
+
+frameSlider.addEventListener('input', (e) => {
+  currentFrameIndex = parseInt(e.target.value, 10);
+  frameDisplay.innerText = `${currentFrameIndex + 1} / ${speFrames.length}`;
+  redraw();
+});
+
 
       const stop = (e) => {
         e.stopPropagation();
@@ -327,9 +452,6 @@
         async (e) => {
           stop(e);
           const files = e.dataTransfer.files; // ドロップしたファイルを取得
-          if (files.length !== 1) {
-            return alert('アップロードできるファイルは1つだけです。');
-          }
           const fileInput = _id('fileInput');
           fileInput.files = files; // input の value をドラッグしたファイルに置き換える
           const res = await inputFileAndDraw(fileInput);
@@ -892,4 +1014,5 @@
     </script>
   </body>
 </html>
+
 
